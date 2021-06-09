@@ -1,8 +1,13 @@
 """Class for playing and annotating video sources."""
+import json
 import logging
-import PIL.Image, PIL.ImageTk
+import pathlib
+import datetime
+
 import cv2
+import PIL.Image, PIL.ImageTk
 import tkinter
+import tkinter.filedialog
 
 logger = logging.getLogger("VideoPlayer")
 logging.basicConfig(level=logging.INFO)
@@ -34,7 +39,7 @@ class VideoPlayer:
         video_frame.pack(side=tkinter.TOP, pady=5)
         self.canvas = tkinter.Canvas(video_frame)
         # Log position of mouse click on canvas
-        self.canvas.bind("<Button-1>", self.get_click_xy)
+        self.canvas.bind("<Button-1>", self.log_click_xy)
         self.canvas.pack()
 
         # Frame that will display menu buttons
@@ -70,37 +75,68 @@ class VideoPlayer:
             width=15,
             command=self.pause_video,
             highlightbackground="#3E4149",
+            state="disabled",
         )
         self.btn_pause.grid(row=0, column=2)
 
+        # Set up logging
+        self.frame_counter, self.mouse_x, self.mouse_y = 0, 0, 0
+        self.annotation_logs = dict()
+        self.log_keys = ["frame_counter", "mouse_x", "mouse_y"]
+
+        self.filename = None
         self.vid = None
-        self.select_and_open_source()
-        self.play_video()  # Kick off the video loop
 
         self.window.mainloop()
 
-    def get_click_xy(self, event: tkinter.Event) -> None:
-        """Get the x,y coordinates of a mouse on clicking in the video."""
-        logger.info("Position (%d,%d)", event.x, event.y)
+    def log_click_xy(self, event: tkinter.Event) -> None:
+        """Log the (x,y) coords of mouse click during video and the frame number.
+        Coordinates are given from top left."""
+        logger.info("Position (%d,%d). Frame %d.", event.x, event.y, self.frame_counter)
+        self.mouse_x = event.x
+        self.mouse_y = event.y
+
+        # Add all relevant keys to logs for current file
+        for key in self.log_keys:
+            self.annotation_logs[self.filename].setdefault(key, []).append(
+                getattr(self, key)
+            )
 
     def select_and_open_source(self) -> None:
         """Select and open a video file to play and/or annotate."""
         self.pause = False
 
         # Select file
-        filename = "22_08_2008-1255-SINGLE00.raw.avi"  # TODO
-        logger.info("Video file selected: %s.", filename)
+        file = tkinter.filedialog.askopenfilename(
+            title="Select video source",
+            filetypes=(
+                ("MP4 files", "*.mp4"),
+                ("AVI files", "*.avi"),
+            ),
+        )
+        logger.info("Video file selected: %s.", file)
+
+        # Save annotations for diff files as new dict entry
+        # Warning: will overwrite existing annotations for a file if loaded again
+        self.filename = pathlib.Path(file).stem
+        self.annotation_logs[self.filename] = dict()
 
         # Open video file
-        self.vid = cv2.VideoCapture(filename)
+        self.vid = cv2.VideoCapture(file)
         if not self.vid.isOpened():
-            raise ValueError("Unable to open video source", filename)
+            raise ValueError("Unable to open video source", file)
 
         # Set appropriate W and H for canvas
         width = self.vid.get(cv2.CAP_PROP_FRAME_WIDTH)
         height = self.vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
         self.canvas.config(width=width, height=height)
         logger.info("Canvas set with width %d and height %d", width, height)
+
+        # Reset counters and kick off video loop
+        self.frame_counter, self.mouse_x, self.mouse_y = 0, 0, 0
+        self.btn_pause["state"] = "normal"
+        self.btn_play["state"] = "disabled"
+        self.play_video()
 
     def get_frame(self) -> None:
         """Get the next frame from the video currently opened.
@@ -112,6 +148,7 @@ class VideoPlayer:
         if self.vid.isOpened():
             ret, frame = self.vid.read()
             if ret:
+                self.frame_counter += 1
                 return (ret, frame)
         return (False, None)  # No video is open
 
@@ -141,9 +178,14 @@ class VideoPlayer:
         self.btn_pause["state"] = "disabled"
 
     def __del__(self) -> None:
-        """Release the video source when the object is destroyed."""
+        """Release the video source when the object is destroyed, and save logs."""
         if self.vid.isOpened():
             self.vid.release()
+
+        # Save logs
+        dt = datetime.datetime.now().strftime("%d%m%Y")
+        with open(f"annotations-{dt}.json", "w", encoding="utf-8") as f:
+            json.dump(self.annotation_logs, f, ensure_ascii=False, indent=4)
 
 
 if __name__ == "__main__":
