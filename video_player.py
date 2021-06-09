@@ -41,7 +41,6 @@ class VideoPlayer:
         # Log position of mouse click on canvas
         self.canvas.bind("<Button-1>", self.log_click_xy)
         self.canvas.pack()
-
         # Frame that will display menu buttons
         menu_frame = tkinter.Frame(self.window)
         menu_frame.pack(side=tkinter.BOTTOM, pady=5)
@@ -86,8 +85,25 @@ class VideoPlayer:
 
         self.filename = None
         self.vid = None
+        self.img = None
 
         self.window.mainloop()
+
+    def shrink(self, c: int, x: int, y: int, r: int) -> None:
+        """Shrink a Tk circle object over time before finalling removing it.
+
+        Args:
+            c (int): Integer ID of circle/oval object from Tk.
+            x (int): X coord for circle centre.
+            y (int): Y coord for circle centre.
+            r (int): Circle radius.
+        """
+        if r > 0.0:
+            r -= 0.5  # Shrink radius
+            self.canvas.coords(c, x - r, y - r, x + r, y + r)  # Change circle size
+            self.canvas.after(100, self.shrink, c, x, y, r)
+        else:
+            self.canvas.delete(c)  # Remove circle entirely
 
     def log_click_xy(self, event: tkinter.Event) -> None:
         """Log the (x,y) coords of mouse click during video and the frame number.
@@ -95,6 +111,16 @@ class VideoPlayer:
         logger.info("Position (%d,%d). Frame %d.", event.x, event.y, self.frame_counter)
         self.mouse_x = event.x
         self.mouse_y = event.y
+
+        r = 8  # Circle radius
+        c = self.canvas.create_oval(
+            self.mouse_x - r,
+            self.mouse_y - r,
+            self.mouse_x + r,
+            self.mouse_y + r,
+            fill="#E274CF",
+        )
+        self.shrink(c, self.mouse_x, self.mouse_y, r)  # Shrink circle over time
 
         # Add all relevant keys to logs for current file
         for key in self.log_keys:
@@ -156,8 +182,9 @@ class VideoPlayer:
         """Play video in a loop if not paused."""
         ret, frame = self.get_frame()
         if ret:
-            self.photo = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(frame))
-            self.canvas.create_image(0, 0, image=self.photo, anchor=tkinter.NW)
+            self.img = PIL.ImageTk.PhotoImage(image=PIL.Image.fromarray(frame))
+            img_uid = self.canvas.create_image(0, 0, image=self.img, anchor=tkinter.NW)
+            self.canvas.lower(img_uid)  # Allows marker for clicks to be visible
 
         if not self.pause:
             self.window.after(DELAY, self.play_video)
