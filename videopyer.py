@@ -4,20 +4,23 @@ import logging
 import pathlib
 import datetime
 
-import cv2
-import PIL.Image, PIL.ImageTk
 import tkinter
 import tkinter.filedialog
+import cv2
+import PIL.Image
+import PIL.ImageTk
 
-logger = logging.getLogger("VideoPlayer")
+logger = logging.getLogger("VideoPyer")
 logging.basicConfig(level=logging.INFO)
 
 # Delay should be changed with caution
 # Tkinter event loop gets flooded with delays < 60 ms
 DELAY = 60
+BKG_COLOUR = "#3E4149"
+COLOUR_MAP = {"blue": "#749CE2", "pink": "#E274CF", "green": "#8CE274"}
 
 
-class VideoPlayer:
+class VideoPyer:  # pylint: disable=too-many-instance-attributes
 
     """Play, pause and record position of mouse clicks on videos."""
 
@@ -32,12 +35,12 @@ class VideoPlayer:
         # Set window title
         self.window = window
         self.window.title(title)
-        self.window.configure(background="#3E4149")
+        self.window.configure(background=BKG_COLOUR)
 
         # Frame that will contain the video
         video_frame = tkinter.Frame(self.window)
         video_frame.pack(side=tkinter.TOP, pady=5)
-        self.canvas = tkinter.Canvas(video_frame)
+        self.canvas = tkinter.Canvas(video_frame, bg=BKG_COLOUR)
         # Log position of mouse click on canvas
         self.canvas.bind("<Button-1>", self.log_click_xy)
         self.canvas.pack()
@@ -48,10 +51,10 @@ class VideoPlayer:
         # Button to select video
         self.btn_select = tkinter.Button(
             menu_frame,
-            text="Select video source",
-            width=15,
+            text="Select video",
+            width=10,
             command=self.select_and_open_source,
-            highlightbackground="#3E4149",
+            highlightbackground=BKG_COLOUR,
         )
         self.btn_select.grid(row=0, column=0)
 
@@ -59,9 +62,9 @@ class VideoPlayer:
         self.btn_play = tkinter.Button(
             menu_frame,
             text="Play",
-            width=15,
+            width=8,
             command=self.resume_video,
-            highlightbackground="#3E4149",
+            highlightbackground=BKG_COLOUR,
             state="disabled",
         )
         self.btn_play.grid(row=0, column=1)
@@ -71,17 +74,28 @@ class VideoPlayer:
         self.btn_pause = tkinter.Button(
             menu_frame,
             text="Pause",
-            width=15,
+            width=8,
             command=self.pause_video,
-            highlightbackground="#3E4149",
+            highlightbackground=BKG_COLOUR,
             state="disabled",
         )
         self.btn_pause.grid(row=0, column=2)
 
+        # Button to select marker colour
+        colours = list(COLOUR_MAP.keys())
+        self.marker_colour = colours[0]
+        var = tkinter.StringVar(video_frame)
+        var.set(colours[0])  # Default value
+        self.opt_colour = tkinter.OptionMenu(
+            video_frame, var, *colours, command=self.set_colour
+        )
+        self.opt_colour.config(bg=BKG_COLOUR, width=8)
+        self.opt_colour.place(x=3, y=3)
+
         # Set up logging
         self.frame_counter, self.mouse_x, self.mouse_y = 0, 0, 0
         self.annotation_logs = dict()
-        self.log_keys = ["frame_counter", "mouse_x", "mouse_y"]
+        self.log_keys = ["frame_counter", "mouse_x", "mouse_y", "marker_colour"]
 
         self.filename = None
         self.vid = None
@@ -89,38 +103,50 @@ class VideoPlayer:
 
         self.window.mainloop()
 
-    def shrink(self, c: int, x: int, y: int, r: int) -> None:
+    def set_colour(self, value) -> None:
+        """Set colour of visible marker for mouse clicks."""
+        self.marker_colour = value
+
+    def shrink(self, c_id: int, x: int, y: int, radius: int) -> None:
         """Shrink a Tk circle object over time before finalling removing it.
 
         Args:
-            c (int): Integer ID of circle/oval object from Tk.
+            c_id (int): Integer ID of circle/oval object from Tk.
             x (int): X coord for circle centre.
             y (int): Y coord for circle centre.
-            r (int): Circle radius.
-        """
-        if r > 0.0:
-            r -= 0.5  # Shrink radius
-            self.canvas.coords(c, x - r, y - r, x + r, y + r)  # Change circle size
-            self.canvas.after(100, self.shrink, c, x, y, r)
+            radius (int): Circle radius.
+        """  # pylint: disable=invalid-name
+        if radius > 0.0:
+            radius -= 0.5  # Shrink radius
+            self.canvas.coords(
+                c_id, x - radius, y - radius, x + radius, y + radius
+            )  # Change circle size
+            self.canvas.after(100, self.shrink, c_id, x, y, radius)
         else:
-            self.canvas.delete(c)  # Remove circle entirely
+            self.canvas.delete(c_id)  # Remove circle entirely
 
     def log_click_xy(self, event: tkinter.Event) -> None:
         """Log the (x,y) coords of mouse click during video and the frame number.
         Coordinates are given from top left."""
-        logger.info("Position (%d,%d). Frame %d.", event.x, event.y, self.frame_counter)
+        logger.info(
+            "Position (%d,%d). Frame %d. Colour %s.",
+            event.x,
+            event.y,
+            self.frame_counter,
+            self.marker_colour,
+        )
         self.mouse_x = event.x
         self.mouse_y = event.y
 
-        r = 8  # Circle radius
-        c = self.canvas.create_oval(
-            self.mouse_x - r,
-            self.mouse_y - r,
-            self.mouse_x + r,
-            self.mouse_y + r,
-            fill="#E274CF",
+        radius = 8  # Circle radius
+        c_id = self.canvas.create_oval(
+            self.mouse_x - radius,
+            self.mouse_y - radius,
+            self.mouse_x + radius,
+            self.mouse_y + radius,
+            fill=COLOUR_MAP[self.marker_colour],
         )
-        self.shrink(c, self.mouse_x, self.mouse_y, r)  # Shrink circle over time
+        self.shrink(c_id, self.mouse_x, self.mouse_y, radius)  # Shrink circle over time
 
         # Add all relevant keys to logs for current file
         for key in self.log_keys:
@@ -210,11 +236,11 @@ class VideoPlayer:
             self.vid.release()
 
         # Save logs
-        dt = datetime.datetime.now().strftime("%d%m%Y")
-        with open(f"annotations-{dt}.json", "w", encoding="utf-8") as f:
-            json.dump(self.annotation_logs, f, ensure_ascii=False, indent=4)
+        tstamp = datetime.datetime.now().strftime("%d%m%Y")
+        with open(f"annotations-{tstamp}.json", "w", encoding="utf-8") as file:
+            json.dump(self.annotation_logs, file, ensure_ascii=False, indent=4)
 
 
 if __name__ == "__main__":
 
-    VideoPlayer(tkinter.Tk(), "Video Player")
+    VideoPyer(tkinter.Tk(), "VideoPyer")
