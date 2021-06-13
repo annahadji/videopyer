@@ -2,7 +2,9 @@
 
 VideoPyer is a small video player tool built using Python and Tkinter. It can save annotations from a video, including mouse position on clicks for different classes as well as arbitrary head direction arrows connecting two points, and their corresponding time point (i.e. frame number).
 
-![](doc/example.gif)
+<p align="center">
+  <img src="doc/example.gif" alt="animated" />
+</p>
 
 ## Getting started
 
